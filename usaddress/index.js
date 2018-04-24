@@ -127,6 +127,35 @@ catch (ex) {
                  'and tag methods');
 }
 
+function construct (items) {
+	var ret = [];
+	items = items.map((item) => {
+		var children = []
+		,	entries  = item.entries()
+		;
+		pull(entries, '', children);
+		ret.push(children);
+	});
+	return ret;
+}
+
+function pull (items, prefix, parent) {
+	for (let [key, value] of items) {
+		if (value instanceof Map) {
+			pull(value.entries(), key + ':', parent);
+		}
+		else {
+			if (typeof value == 'boolean') {
+				// How we handle the boolean values can make or break things!
+				parent.push(prefix + key + ':' + value);
+			}
+			else {
+				parent.push(prefix + key + (value ? ':' + value : ''));
+			}
+		}
+	}
+}
+
 function intersecting (a, b) {
 	return [...a].reduce(function (prev, curr) {
 		if (b.includes && b.includes(curr)) {
@@ -145,40 +174,8 @@ function parse (address_string) {
 		return new Set();
 	}
 	var features = tokens2features(tokens);
-	/* TAGGER.tag() demands key-value pairs to be a joined string in the format of "key:value".
-	 *   In other words, { 'test': 'asdf', 'test2': 'qwer' } should end up as
-	 *   ['test:asdf', 'test2:qwer']! Child maps should be merged into its parent map with the same
-	 *   format! For example, { 'key': 'value', 'previous': { 'key': 'value' } } becomes
-	 *   ['key:value', 'previous:key:value']!
-	 */
 	// Convert key-value pairs to string concatenations!
-	features = features.map((item) => {
-		return Array.from(item.entries()).map((it) => {
-			var [key, value] = it;
-			if (['previous', 'next'].includes(key)) {
-				return Array.from(value.entries()).map((m) => {
-					return key + ':' + m.join(':');
-				});
-			}
-			return it.join(':');
-		});
-	});
-	// Merge child maps into parent map!
-	features = features.reduce((prev, item) => {
-		let next = [];
-		item.forEach((el) => {
-			if (Array.isArray(el)) {
-				el.forEach((it) => {
-					next.push(it);
-				});
-			}
-			else {
-				next.push(el);
-			}
-		});
-		prev.push(next);
-		return prev;
-	}, []);
+	features = construct(features);
 	var tags = TAGGER.tag(features);
 	return Array.from(tokens).map((token, idx) => {
 		var tag = tags[idx];
