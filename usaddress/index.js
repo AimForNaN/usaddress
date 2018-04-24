@@ -318,3 +318,8 @@ function trailingZeros (token) {
 	}
 	return '';
 }
+
+module.exports = {
+	parse: parse
+,	tag: tag
+};

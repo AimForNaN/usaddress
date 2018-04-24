@@ -1,0 +1,26 @@
+{
+  "name": "usaddress",
+  "version": "1.0.0",
+  "description": "Node.js port of the Python library usaddress",
+  "main": "index.js",
+  "directories": {
+    "usaddress": "usaddress"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/truefusion/usaddress.git"
+  },
+  "keywords": [
+    "usaddress",
+    "node"
+  ],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/truefusion/usaddress/issues"
+  },
+  "homepage": "https://github.com/truefusion/usaddress#readme"
+}
