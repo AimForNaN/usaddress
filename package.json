@@ -1,13 +1,10 @@
 {
   "name": "usaddress",
-  "version": "1.0.0",
+  "version": "0.9.0",
   "description": "Node.js port of the Python library usaddress",
-  "main": "index.js",
+  "main": "usaddress/index.js",
   "directories": {
     "usaddress": "usaddress"
-  },
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
@@ -22,5 +19,8 @@
   "bugs": {
     "url": "https://github.com/truefusion/usaddress/issues"
   },
-  "homepage": "https://github.com/truefusion/usaddress#readme"
+  "homepage": "https://github.com/truefusion/usaddress",
+  "dependencies": {
+    "crfsuite": "^0.9.3"
+  }
 }

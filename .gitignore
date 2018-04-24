@@ -15,6 +15,7 @@ dist/
 eggs/
 lib/
 lib64/
+node_modules/
 parts/
 sdist/
 var/
