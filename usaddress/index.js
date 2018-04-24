@@ -147,7 +147,7 @@ function pull (items, prefix, parent) {
 		else {
 			if (typeof value == 'boolean') {
 				// How we handle the boolean values can make or break things!
-				parent.push(prefix + key + ':' + value);
+				if (value) parent.push(prefix + key);
 			}
 			else {
 				parent.push(prefix + key + (value ? ':' + value : ''));
