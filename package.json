@@ -1,6 +1,6 @@
 {
   "name": "usaddress",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Node.js port of the Python library usaddress",
   "main": "usaddress/index.js",
   "directories": {
@@ -24,6 +24,6 @@
     "crfsuite": "^0.9.3"
   },
   "files": [
-	  "usaddress/usaddr.crfsuite"
+    "usaddress/usaddr.crfsuite"
   ]
 }
