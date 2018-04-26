@@ -1,5 +1,6 @@
-const crfsuite      = require('crfsuite'); // github.com/vunb/node-crfsuite
-// const {TextDecoder} = require('text-encoding');
+const crfsuite = require('crfsuite');
+const fs       = require('fs');
+const path     = require('path');
 
 const LABELS = [
     'AddressNumberPrefix',
@@ -32,9 +33,6 @@ const LABELS = [
 
 const PARENT_LABEL = 'AddressString';
 const GROUP_LABEL  = 'AddressCollection';
-
-const MODEL_FILE = 'usaddr.crfsuite';
-const MODEL_PATH = __dirname + '/' + MODEL_FILE;
 
 const DIRECTIONS = new Set([
 	'n', 's', 'e', 'w',
@@ -117,209 +115,213 @@ const STREET_NAMES = new Set([
     'xg', 'xing', 'xrd', 'xrds'
 ])
 
-const TAGGER = crfsuite.Tagger();
-try {
-	TAGGER.open(MODEL_PATH);
-}
-catch (ex) {
-	console.warn('You must train the model (parserator train --trainfile FILES) ' +
-                 `to create the ${MODEL_FILE} file before you can use the parse ` +
-                 'and tag methods');
-}
+class usaddress {
+	constructor(model) {;
+		this.TAGGER = crfsuite.Tagger();
+		this.open(model || __dirname + '/' + 'usaddr.crfsuite');
+	}
 
-function construct (items) {
-	var ret = [];
-	items = items.map((item) => {
-		var children = []
-		,	entries  = item.entries()
-		;
-		pull(entries, '', children);
-		ret.push(children);
-	});
-	return ret;
-}
+	construct (items) {
+		var ret = [];
+		items = items.map((item) => {
+			var children = []
+			,	entries  = item.entries()
+			;
+			this.pull(entries, '', children);
+			ret.push(children);
+		});
+		return ret;
+	}
 
-function pull (items, prefix, parent) {
-	for (let [key, value] of items) {
-		if (value instanceof Map) {
-			pull(value.entries(), key + ':', parent);
+	digits (token) {
+		if (Math.max(1, parseInt(token))) {
+			return 'all_digits';
+		}
+		else if (this.intersecting(Array.from(String(token)), Array.from(String('0123456789'))).length) {
+			return 'some_digits';
 		}
 		else {
-			if (typeof value == 'boolean') {
-				// How we handle the boolean values can make or break things!
-				if (value) parent.push(prefix + key);
+			return 'no_digits';
+		}
+	}
+
+	intersecting (a, b) {
+		return [...a].reduce((prev, curr) => {
+			if (b.includes && b.includes(curr)) {
+				prev.push(curr);
+			}
+			else if (b.has && b.has(curr)) {
+				prev.push(curr);
+			}
+			return prev;
+		}, []);
+	}
+
+	open (model) {
+		if (fs.existsSync(model)) {
+			this.TAGGER.open(model);
+		}
+		else {
+			console.warn('You must train the model (parserator train --trainfile FILES) ' +
+				`to create the ${model} file before you can use the parse ` +
+				'and tag methods');
+		}
+	}
+
+	parse (address_string) {
+		var tokens = this.tokenize(address_string);
+		if (!tokens) {
+			return new Set();
+		}
+		var features = this.tokens2features(tokens);
+		// Convert key-value pairs to string concatenations!
+		features = this.construct(features);
+		var tags = this.TAGGER.tag(features);
+		return Array.from(tokens).map((token, idx) => {
+			var tag = tags[idx];
+			return [tag, token];
+		});
+	}
+
+	pull (items, prefix, parent) {
+		for (let [key, value] of items) {
+			if (value instanceof Map) {
+				this.pull(value.entries(), key + ':', parent);
 			}
 			else {
-				parent.push(prefix + key + (value ? ':' + value : ''));
+				if (typeof value == 'boolean') {
+					// How we handle the boolean values can make or break things!
+					if (value) parent.push(prefix + key);
+				}
+				else {
+					parent.push(prefix + key + (value ? ':' + value : ''));
+				}
 			}
 		}
 	}
-}
 
-function intersecting (a, b) {
-	return [...a].reduce(function (prev, curr) {
-		if (b.includes && b.includes(curr)) {
-			prev.push(curr);
-		}
-		else if (b.has && b.has(curr)) {
-			prev.push(curr);
-		}
-		return prev;
-	}, []);
-}
+	tag (address_string, tag_mapping) {
+		var tagged_address  = new Map()
+		,	last_label      = null
+		,	is_intersection = null
+		,	og_labels       = new Set()
+		,	address_type    = 'Ambiguous'
+		,	parsed          = this.parse(address_string)
+		;
+		for (let [token, label] of parsed) {
+			if (label == 'IntersectionSeparator') {
+				is_intersection = true;
+			}
+			if (String(label).includes('StreetName') && is_intersection) {
+				label = 'Second' + label;
+			}
 
-function parse (address_string) {
-	var tokens = tokenize(address_string);
-	if (!tokens) {
-		return new Set();
+			og_labels.add(label);
+			if (tag_mapping && tag_mapping.get(label)) {
+				label = tag_mapping.get(label);
+			}
+
+			if (label == last_label) {
+				tagged_address.get(label).add(token);
+			}
+			else if (!tagged_address.has(label)) {
+				tagged_address.set(label, [token]);
+			}
+			else {
+				throw [address_string, this.parse(address_string), label];
+			}
+
+			last_label = label;
+		}
+
+		for (let token of tagged_address.keys()) {
+			let component = tagged_address.get(token).join(' ');
+			component = component.trim().replace(/[,;]+/gu, '');
+			tagged_address.set(token, component);
+		}
+
+		if (og_labels.has('AddressNumber') && !is_intersection) {
+			address_type = 'Street Address';
+		}
+		else if (!og_labels.has('AddressNumber') && is_intersection) {
+			address_type = 'Intersection';
+		}
+		else if (og_labels.has('USPSBoxID')) {
+			address_type = 'PO Box';
+		}
+
+		return [tagged_address, address_type];
 	}
-	var features = tokens2features(tokens);
-	// Convert key-value pairs to string concatenations!
-	features = construct(features);
-	var tags = TAGGER.tag(features);
-	return Array.from(tokens).map((token, idx) => {
-		var tag = tags[idx];
-		return [tag, token];
-	});
-}
 
-function tag (address_string, tag_mapping) {
-	var tagged_address  = new Map()
-	,	last_label      = null
-	,	is_intersection = null
-	,	og_labels       = new Set()
-	;
-	for (let [token, label] of parse(address_string)) {
-		if (label == 'IntersectionSeparator') {
-			is_intersection = true;
-		}
-		if (String(label).includes('StreetName') && is_intersection) {
-			label = 'Second' + label;
-		}
-
-		og_labels.add(label);
-		if (tag_mapping && tag_mapping.get(label)) {
-			label = tag_mapping.get(label);
-		}
-
-		if (label == last_label) {
-			tagged_address.get(label).add(token);
-		}
-		else if (!tagged_address.has(label)) {
-			tagged_address.set(label, [token]);
+	tokenFeatures (token) {
+		if (["\u0026", "\u0023", "\u00bd"].includes(token)) {
+			var token_clean = token;
 		}
 		else {
-			throw [address_string, parse(address_string), label];
+			var token_clean = String(token).replace(/(^[\W]*)|([^.\w]*$)/gu, '');
+		}
+		var token_abbrev = String(token_clean).toLowerCase().replace(/[.]/, '')
+		,	isdigit      = Math.max(1, parseInt(token_abbrev))
+		;
+		return new Map([
+			['abbrev', token_clean.substr(-1) == "\u002e"]
+		,	['digits', this.digits(token_clean)]
+		,	['word', !isdigit ? token_abbrev : false]
+		,	['trailing.zeros', isdigit ? this.trailingZeros(token_abbrev) : false]
+		,	['length', isdigit ? "\u0064\u003A" + String(token_abbrev).length : "\u0077\u003A" + String(token_abbrev).length]
+		,	['endsinpunc', Boolean(String(token).match(/.+[^.\w]/)) ? String(token).substr(-1) : false]
+		,	['directional', DIRECTIONS.has(token_abbrev)]
+		,	['street_name', STREET_NAMES.has(token_abbrev)]
+		,	['has.vowels', Boolean(this.intersecting(Array.from(token_abbrev.substr(1)), Array.from('aeiou')).length)]
+		]);
+	}
+
+	tokenize (address_string) {
+		// if (!(address_string instanceof String)) {
+		// 	let enc = new TextDecoder('utf8');
+		// 	address_string = enc.decode(address_string);
+		// }
+		address_string = address_string.replace(/&#38;|&amp;/gu, '&');
+
+		var re_tokens = /\(*\b[^\s,;#&()]+[.,;)\n]*|[#&]/gu;
+		return new Set(address_string.match(re_tokens));
+	}
+
+	tokens2features (address) {
+		address = Array.from(address);
+		var feature_sequence  = [this.tokenFeatures(address[0])]
+		,	previous_features = this.tokenFeatures(address[0])
+		;
+
+		Array.from(address).slice(1).forEach((token) => {
+			let token_features   = this.tokenFeatures(token)
+			,	current_features = this.tokenFeatures(token)
+			;
+			feature_sequence[feature_sequence.length - 1].set('next', current_features);
+			token_features.set('previous', previous_features);
+
+			feature_sequence.push(token_features);
+			previous_features = current_features;
+		});
+
+		feature_sequence[0].set('address.start', true);
+		feature_sequence[feature_sequence.length - 1].set('address.end', true);
+
+		if (feature_sequence.length > 1) {
+			feature_sequence[1].get('previous').set('address.start', true);
+			feature_sequence[feature_sequence.length - 2].get('next').set('address.end', true);
 		}
 
-		last_label = label;
+		return feature_sequence;
 	}
 
-	for (let token of tagged_address.keys()) {
-		let component = tagged_address.get(token).join(' ');
-		component = component.trim().replace(/[,;]+/gu, '');
-		tagged_address.set(token, component);
-	}
-
-	if (og_labels.has('AddressNumber') && !is_intersection) {
-		address_type = 'Street Address';
-	}
-	else if (!og_labels.has('AddressNumber') && is_intersection) {
-		address_type = 'Intersection';
-	}
-	else if (og_labels.has('USPSBoxID')) {
-		address_type = 'PO Box';
-	}
-	else {
-		address_type = 'Ambiguous';
-	}
-
-	return [tagged_address, address_type];
-}
-
-function tokenize (address_string) {
-	// if (!(address_string instanceof String)) {
-	// 	let enc = new TextDecoder('utf8');
-	// 	address_string = enc.decode(address_string);
-	// }
-	address_string = address_string.replace(/&#38;|&amp;/gu, '&');
-
-	var re_tokens = /\(*\b[^\s,;#&()]+[.,;)\n]*|[#&]/gu;
-	return new Set(address_string.match(re_tokens));
-}
-
-function tokenFeatures (token) {
-	if (["\u0026", "\u0023", "\u00bd"].includes(token)) {
-		var token_clean = token;
-	}
-	else {
-		var token_clean = String(token).replace(/(^[\W]*)|([^.\w]*$)/gu, '');
-	}
-	var token_abbrev = String(token_clean).toLowerCase().replace(/[.]/, '')
-	,	isdigit      = Math.max(1, parseInt(token_abbrev))
-	;
-	return new Map([
-		['abbrev', token_clean.substr(-1) == "\u002e"]
-	,	['digits', digits(token_clean)]
-	,	['word', !isdigit ? token_abbrev : false]
-	,	['trailing.zeros', isdigit ? trailingZeros(token_abbrev) : false]
-	,	['length', isdigit ? "\u0064\u003A" + String(token_abbrev).length : "\u0077\u003A" + String(token_abbrev).length]
-	,	['endsinpunc', Boolean(String(token).match(/.+[^.\w]/)) ? String(token).substr(-1) : false]
-	,	['directional', DIRECTIONS.has(token_abbrev)]
-	,	['street_name', STREET_NAMES.has(token_abbrev)]
-	,	['has.vowels', Boolean(intersecting(Array.from(token_abbrev.substr(1)), Array.from('aeiou')).length)]
-	]);
-}
-
-function tokens2features (address) {
-	address = Array.from(address);
-	var feature_sequence  = [tokenFeatures(address[0])]
-	,	previous_features = tokenFeatures(address[0])
-	;
-
-	Array.from(address).slice(1).forEach((token) => {
-		let token_features   = tokenFeatures(token)
-		,	current_features = tokenFeatures(token)
-		;
-		feature_sequence[feature_sequence.length - 1].set('next', current_features);
-		token_features.set('previous', previous_features);
-
-		feature_sequence.push(token_features);
-		previous_features = current_features;
-	});
-
-	feature_sequence[0].set('address.start', true);
-	feature_sequence[feature_sequence.length - 1].set('address.end', true);
-
-	if (feature_sequence.length > 1) {
-		feature_sequence[1].get('previous').set('address.start', true);
-		feature_sequence[feature_sequence.length - 2].get('next').set('address.end', true);
-	}
-
-	return feature_sequence;
-}
-
-function digits (token) {
-	if (Math.max(1, parseInt(token))) {
-		return 'all_digits';
-	}
-	else if (intersecting(Array.from(String(token)), Array.from(String('0123456789'))).length) {
-		return 'some_digits';
-	}
-	else {
-		return 'no_digits';
+	trailingZeros (token) {
+		var results = String(token).match(/(0+)$/);
+		if (results) {
+			return results[0];
+		}
+		return '';
 	}
 }
 
-function trailingZeros (token) {
-	var results = String(token).match(/(0+)$/);
-	if (results) {
-		return results[0];
-	}
-	return '';
-}
-
-module.exports = {
-	parse: parse
-,	tag: tag
-};
+module.exports = usaddress;
