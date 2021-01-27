@@ -21,7 +21,7 @@
   },
   "homepage": "https://github.com/truefusion/usaddress",
   "dependencies": {
-    "crfsuite": "^0.9.3"
+    "crfsuite": "^1.0.1"
   },
   "files": [
     "usaddress/usaddr.crfsuite"

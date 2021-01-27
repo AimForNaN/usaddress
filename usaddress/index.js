@@ -117,7 +117,7 @@ const STREET_NAMES = new Set([
 
 module.exports = class usaddress {
 	constructor(model) {;
-		this.TAGGER = crfsuite.Tagger();
+		this.TAGGER = new crfsuite.Tagger();
 		this.open(model || __dirname + '/' + 'usaddr.crfsuite');
 	}
 
